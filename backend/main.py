@@ -152,7 +152,7 @@ class MCQModel(SQLModel, table=True):
 class QuestionDatabaseControl:
     def __init__(self):
 
-        self.DATABASE_URL = "postgresql://postgres:{key}@db.jpsimagftntgasqzuvnd.supabase.co:5432/postgres".format(key=os.environ["SUPABASE_KEY"])
+        self.DATABASE_URL = "postgresql://postgres.jpsimagftntgasqzuvnd:{password}@aws-1-ca-central-1.pooler.supabase.com:6543/postgres".format(password=os.environ["SUPABASE_KEY"])
 
         self.engine = create_engine(self.DATABASE_URL)
 
