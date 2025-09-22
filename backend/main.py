@@ -15,7 +15,7 @@ from sqlalchemy.exc import NoResultFound
 
 dotenv.load_dotenv()
 
-MODE = "testing"
+MODE = "deployment"
 
 assert MODE == "testing" or MODE == "deployment"
 
@@ -195,7 +195,8 @@ app = FastAPI()
 database_access = QuestionDatabaseControl()
 
 origins = [
-    "*"
+    "chrome-extension://pddmfhlahoicjidkahboanogjmhnmeab",
+    "moz-extension://pddmfhlahoicjidkahboanogjmhnmeab"
 ]
 
 app.add_middleware(
