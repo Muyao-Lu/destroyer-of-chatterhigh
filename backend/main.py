@@ -196,7 +196,8 @@ database_access = QuestionDatabaseControl()
 
 origins = [
     "chrome-extension://pddmfhlahoicjidkahboanogjmhnmeab",
-    "moz-extension://pddmfhlahoicjidkahboanogjmhnmeab"
+    "moz-extension://pddmfhlahoicjidkahboanogjmhnmeab",
+    "https://chatterhigh.com"
 ]
 
 app.add_middleware(
