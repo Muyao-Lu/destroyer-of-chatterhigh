@@ -1,0 +1,4 @@
+{
+    "answer_quiz": "Given a URL, a question, and 4 choices in the format {{HTML_ID: text}}, return ONLY the HTML_ID of the correct answer.\nURL: {link}\n\nQ: {question}\n\nA: {choices}",
+    "answer_quiz_long": "Given a URL, a question, and 4 choices in the format {{HTML_ID: text}}, return ONLY the HTML_ID of the correct answer.\n\nQ: {question}\n\nA: {choices}\n\nInformation to use: {excerpt}\n\nSource: {source}"
+}
