@@ -1,0 +1,19 @@
+{
+    "name": "Chatterhigh Automation", 
+    "version": "0.0.1.0",
+    "description": "Chatterhigh automated for yall with 0.1s attention span",
+    "action": {},
+    "manifest_version": 3,
+	"background": {
+        "service_worker": "index.js"
+    },
+    "permissions": [
+        "activeTab",
+        "scripting",
+        "cookies",
+        "storage"
+    ],
+    "host_permissions": [
+       "<all_urls>"
+    ]
+}
