@@ -271,9 +271,12 @@ app.add_middleware(
 ai_api_access = AIAccess()
 @app.post("/")
 def answer_question(request: QuestionRequest):
-
-    return ai_api_access.call_answer_question(question=request.question, choices=request.choices,
-                                              link=request.website_link, session_token=request.session_token)
+    try:
+        return ai_api_access.call_answer_question(question=request.question, choices=request.choices,
+                                                  link=request.website_link, session_token=request.session_token)
+    except Error as e:
+        print(e)
+        return "Error raised " + e
 
 @app.post("/summarize")
 def summarize_questions(request: SummaryRequest):
@@ -289,4 +292,5 @@ def add_to_db(question, correct_answer):
 
 if MODE == "testing":
     if __name__ == "__main__":
+
         uvicorn.run(app, port=8000, log_level="warning")
