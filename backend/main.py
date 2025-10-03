@@ -1,17 +1,14 @@
 from typing import Optional
-
-from groq import Groq, RateLimitError, APIStatusError
+from groq import Groq
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_hyperbrowser import HyperbrowserLoader
-import dotenv, os, json, cohere
-import uvicorn
-import requests
-import time, datetime
+import dotenv, os, json, cohere, uvicorn, requests, datetime, re, markdown
 from sqlmodel import SQLModel, Field, create_engine, Session, select
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import NoResultFound, MultipleResultsFound
+from bs4 import BeautifulSoup
 
 dotenv.load_dotenv()
 
@@ -34,19 +31,40 @@ def get_final_url(url, session_token):
 
     return response.url
 
+def convert_to_html(mk):
+    converted = markdown.markdown(mk, extensions=["tables"])
+    converted = converted.replace("\n", "<br>")
+    converted = converted.replace('"', "'")
+
+    return converted
+
 class Scraper:
     def __init__(self):
         self.api_key = os.environ["HYPERBROWSER_API_KEY"]
 
     def scrape(self, link):
-        loader = HyperbrowserLoader(
-            urls=link,
-            api_key=self.api_key
-        )
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://chatterhigh.com/"
+        }
 
-        r = loader.load()
+        soup = BeautifulSoup(requests.get(link, headers=headers).text, features="html.parser")
 
-        return r[0].page_content
+        if len(soup.text) > 2500:
+            print("Using requests scrape")
+            return re.sub(pattern=re.compile("\n+"), repl="\n", string=soup.text)
+        else:
+            print("Falling back to Hyperbrowser")
+            loader = HyperbrowserLoader(
+                urls=link,
+                api_key=self.api_key
+            )
+
+            r = loader.load()
+
+            return r[0].page_content
 
 class AIAccess:
 
@@ -60,14 +78,13 @@ class AIAccess:
             }
         )
         self.splitter = RecursiveCharacterTextSplitter(
-            chunk_size=300,
+            chunk_size=500,
             chunk_overlap=100
         )
-        self.model = "groq/compound"
+        self.model = "openai/gpt-oss-20b"
         self.embedding_model = cohere.ClientV2()
         with open("prompts.json", "r") as p:
             self.json_file = json.load(p)
-        self.REPEAT_LIMIT = 5
 
     def find_top_segment(self, query, document):
         segments = self.splitter.split_text(document)
@@ -76,25 +93,41 @@ class AIAccess:
             model="rerank-v3.5",
             query=query,
             documents=segments,
-            top_n=1,
+            top_n=1
         )
 
         results = dict(results)
 
-        first_item_data = dict(results["results"][0])
-        return first_item_data
-
-
-    def generate_fast_prompt(self, question, choices, link, session_token):
-        prompt = self.json_file["answer_quiz"].format(question=question, choices=choices, link=get_final_url(link, session_token))
-        return prompt
+        first_item_index = results["results"][0].index
+        return segments[first_item_index]
 
     def generate_rag_prompt(self, question, choices, link, session_token):
         t = self.find_top_segment(query=question, document=self.scraper.scrape(link=get_final_url(link, session_token)))
-        prompt = self.json_file["answer_quiz_long"].format(question=question, choices=choices, excerpt=t, source=link)
+        prompt = self.json_file["answer_quiz"].format(question=question, choices=choices, excerpt=t, source=link)
         return prompt
 
-    def call_ai(self, question, choices: dict, link, session_token):
+    def generate_summarizer_prompt(self, documents):
+        combined_documents = ""
+        for document in documents:
+            try:
+                combined_documents += document + " : "
+                combined_documents += database_access.get_by_question(document).correct_answer
+                combined_documents += "\n"
+            except AttributeError:
+                continue
+
+        prompt = self.json_file["summarize"].format(data=documents)
+        return prompt
+
+    def get_html_id(self, text):
+        pattern = re.compile("answer_id_[0-9]+")
+        match = re.findall(pattern=pattern, string=text)
+        if len(match) > 0:
+            return match[0]
+        else:
+            return None
+
+    def call_answer_question(self, question, choices: dict, link, session_token):
         reverse_choices = dict((choices[key], key) for key in choices.keys())
         for key in choices.keys():
             result = database_access.get_by_details(correct_answer=choices[key], question=question)
@@ -104,44 +137,53 @@ class AIAccess:
                 except KeyError:
                     continue
 
-        p = self.generate_fast_prompt(question=question, choices=choices, link=link, session_token=session_token)
-        repeats = 0
+
+        begin = datetime.datetime.now()
         messages = [
             {
                 'role': 'user',
-                'content': p,
+                'content': self.generate_rag_prompt(
+                                question=question,
+                                choices=choices,
+                                link=link,
+                                session_token=session_token
+                        ),
 
             },
         ]
-        tools = {"tools":{"enabled_tools":["visit_website","web_search"]}}
+        print("Prompt", messages)
+
+        res = self.text_gen_model.chat.completions.create(
+            model=self.model,
+            temperature=0,
+            messages=messages,
+            include_reasoning=False
+        )
+
+        print("Process completed with a time of", (datetime.datetime.now() - begin).total_seconds())
+        print("Tokens used", res.usage.total_tokens)
+        return self.get_html_id(res.choices[0].message.content)
+
+    def call_summarizer(self, documents):
         begin = datetime.datetime.now()
-        while repeats < self.REPEAT_LIMIT:
-            repeats += 1
+        messages = [
+            {
+                'role': 'user',
+                'content': self.generate_summarizer_prompt(
+                    documents=documents
+                ),
 
-            try:
-
-                res = self.text_gen_model.chat.completions.create(
-                    model=self.model,
-                    temperature=0.5,
-                    messages=messages,
-                    compound_custom=tools)
-                print("Called ai with a time of:", (datetime.datetime.now() - begin).total_seconds())
-                print("Result", res)
-                return res.choices[0].message.content
-            except RateLimitError as e:
-                print("Rate limit hit", e)
-                time.sleep(2**repeats)
-            except APIStatusError:
-                p = self.generate_rag_prompt(question=question, choices=choices, link=link,
-                                             session_token=session_token)
-                messages = [
-                    {
-                        'role': 'user',
-                        'content': p,
-
-                    },
-                ]
-                tools = {}
+            }
+        ]
+        res = self.text_gen_model.chat.completions.create(
+            model=self.model,
+            temperature=0.5,
+            messages=messages,
+            include_reasoning=False
+        )
+        print("Process completed with a time of", (datetime.datetime.now() - begin).total_seconds())
+        print("Tokens used", res.usage.total_tokens)
+        return res.choices[0].message.content
 
 
 class MCQModel(SQLModel, table=True):
@@ -153,9 +195,7 @@ class QuestionDatabaseControl:
     def __init__(self):
 
         self.DATABASE_URL = "postgresql://postgres.jpsimagftntgasqzuvnd:{password}@aws-1-ca-central-1.pooler.supabase.com:6543/postgres".format(password=os.environ["SUPABASE_KEY"])
-
         self.engine = create_engine(self.DATABASE_URL)
-
         SQLModel.metadata.create_all(self.engine)
 
     def add(self, correct_answer, question):
@@ -173,16 +213,32 @@ class QuestionDatabaseControl:
                 if l is None:
                     session.add(MCQModel(correct_answer=correct_answer, question=question))
                     session.commit()
+            except MultipleResultsFound:
+                print("Multiple results found for", correct_answer, question)
 
     def get_by_details(self, correct_answer, question):
         with Session(self.engine) as session:
-            condition = select(MCQModel).where(MCQModel.correct_answer == correct_answer and MCQModel.question == question)
+            condition = select(MCQModel).where(MCQModel.correct_answer == correct_answer).where(MCQModel.question == question)
             results = session.exec(condition)
 
             try:
                 return results.one()
             except NoResultFound:
                 return None
+            except MultipleResultsFound:
+                print("Multiple results found while getting by details", correct_answer, question)
+
+    def get_by_question(self, question):
+        with Session(self.engine) as session:
+            condition = select(MCQModel).where(MCQModel.question == question)
+            results = session.exec(condition)
+
+            try:
+                return results.one()
+            except NoResultFound:
+                return None
+            except MultipleResultsFound:
+                print("Multiple results found while getting by question", question)
 
 
 class QuestionRequest(BaseModel):
@@ -190,6 +246,10 @@ class QuestionRequest(BaseModel):
     question: str
     website_link: str
     session_token: str
+
+class SummaryRequest(BaseModel):
+    text: list[str]
+
 
 app = FastAPI()
 database_access = QuestionDatabaseControl()
@@ -211,17 +271,22 @@ app.add_middleware(
 ai_api_access = AIAccess()
 @app.post("/")
 def answer_question(request: QuestionRequest):
-    print("request post")
-    return ai_api_access.call_ai(question=request.question, choices=request.choices,
-                                 link=request.website_link, session_token=request.session_token)
+
+    return ai_api_access.call_answer_question(question=request.question, choices=request.choices,
+                                              link=request.website_link, session_token=request.session_token)
+
+@app.post("/summarize")
+def summarize_questions(request: SummaryRequest):
+    print("Summarizing Questions")
+    return convert_to_html(ai_api_access.call_summarizer(documents=request.text))
+
 
 @app.get("/report_correct_answer")
 def add_to_db(question, correct_answer):
 
-    print("request add_to_db")
     database_access.add(question=question, correct_answer=correct_answer)
     return True
 
 if MODE == "testing":
     if __name__ == "__main__":
-        uvicorn.run(app, port=8000)
+        uvicorn.run(app, port=8000, log_level="warning")

@@ -1,4 +1,4 @@
 {
-    "answer_quiz": "Given a URL, a question, and 4 choices in the format {{HTML_ID: text}}, return ONLY the HTML_ID of the correct answer.\nURL: {link}\n\nQ: {question}\n\nA: {choices}",
-    "answer_quiz_long": "Given a URL, a question, and 4 choices in the format {{HTML_ID: text}}, return ONLY the HTML_ID of the correct answer.\n\nQ: {question}\n\nA: {choices}\n\nInformation to use: {excerpt}\n\nSource: {source}"
+    "summarize": "Given these question-answer pairs, create a summary at a high school student level using emojis and html formatting (<b>, <i>, <h1>) around the inferred topic. Unless otherwise stated, assume that all of the questions are relevant to Canadian law and standards.\nData: {data}",
+    "answer_quiz": "Given a URL, a question, and 4 choices in the format {{HTML_ID: text}}, return ONLY the HTML_ID of the correct answer.\n\nQ: {question}\n\nA: {choices}\n\nInformation to use: {excerpt}\n\nSource: {source}"
 }
