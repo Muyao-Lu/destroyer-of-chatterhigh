@@ -5,10 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_hyperbrowser import HyperbrowserLoader
-import dotenv, os, json, cohere, uvicorn, requests, datetime, re, markdown
+import dotenv, os, json, uvicorn, requests, datetime, re, markdown, time
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from sqlalchemy.exc import NoResultFound, MultipleResultsFound
 from bs4 import BeautifulSoup
+import cohere
 
 dotenv.load_dotenv()
 
@@ -89,12 +90,19 @@ class AIAccess:
     def find_top_segment(self, query, document):
         segments = self.splitter.split_text(document)
 
-        results = self.embedding_model.rerank(
-            model="rerank-v3.5",
-            query=query,
-            documents=segments,
-            top_n=1
-        )
+        for i in range(5):
+
+            try:
+                results = self.embedding_model.rerank(
+                    model="rerank-v3.5",
+                    query=query,
+                    documents=segments,
+                    top_n=1
+                )
+                break
+            except cohere.errors.TooManyRequestsError:
+                time.sleep(5)
+
 
         results = dict(results)
 
@@ -271,12 +279,9 @@ app.add_middleware(
 ai_api_access = AIAccess()
 @app.post("/")
 def answer_question(request: QuestionRequest):
-    try:
-        return ai_api_access.call_answer_question(question=request.question, choices=request.choices,
-                                                  link=request.website_link, session_token=request.session_token)
-    except Error as e:
-        print(e)
-        return "Error raised " + e
+
+    return ai_api_access.call_answer_question(question=request.question, choices=request.choices,
+                                              link=request.website_link, session_token=request.session_token)
 
 @app.post("/summarize")
 def summarize_questions(request: SummaryRequest):
@@ -292,5 +297,4 @@ def add_to_db(question, correct_answer):
 
 if MODE == "testing":
     if __name__ == "__main__":
-
         uvicorn.run(app, port=8000, log_level="warning")
