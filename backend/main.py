@@ -79,7 +79,7 @@ class AIAccess:
             }
         )
         self.splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,
+            chunk_size=1000,
             chunk_overlap=100
         )
         self.model = "openai/gpt-oss-20b"
@@ -89,13 +89,25 @@ class AIAccess:
 
     def find_top_segment(self, query, document):
         segments = self.splitter.split_text(document)
+        query_enhanced = self.text_gen_model.chat.completions.create(
+            model=self.model,
+            temperature=0,
+            messages=[
+                {
+                    'role': 'user',
+                    'content': "Rewrite this query in the form of a question to enhance RAG (Retrieval Augmented"
+                               "Generation) performance. \n ### Query: {query}".format(query=query)
 
+                },
+            ],
+            include_reasoning=False
+        ).choices[0].message.content
         for i in range(5):
 
             try:
                 results = self.embedding_model.rerank(
                     model="rerank-v3.5",
-                    query=query,
+                    query=query_enhanced,
                     documents=segments,
                     top_n=1
                 )
@@ -104,9 +116,7 @@ class AIAccess:
                 time.sleep(5)
 
 
-        results = dict(results)
-
-        first_item_index = results["results"][0].index
+        first_item_index = results.results[0].index
         return segments[first_item_index]
 
     def generate_rag_prompt(self, question, choices, link, session_token):
