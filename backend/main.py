@@ -31,7 +31,7 @@ def safe_get(url, **cookies):
     data = bytearray()
     for chunk in response.iter_content(8192):
         data.extend(chunk)
-        if len(data) > 500000:
+        if len(data) > 2000000:
             raise ValueError("Too large (streamed)")
     return response
   else:
