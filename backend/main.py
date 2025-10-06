@@ -31,7 +31,7 @@ def safe_get(url, **cookies):
     data = bytearray()
     for chunk in response.iter_content(8192):
         data.extend(chunk)
-        if len(data) > 100000:
+        if len(data) > 500000:
             raise ValueError("Too large (streamed)")
     return response
   else:
@@ -320,5 +320,4 @@ def add_to_db(question, correct_answer):
 
 if MODE == "testing":
     if __name__ == "__main__":
-
         uvicorn.run(app, port=8000, log_level="warning")
