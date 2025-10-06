@@ -14,7 +14,7 @@ import cohere
 
 dotenv.load_dotenv()
 
-MODE = "testing"
+MODE = "deployment"
 
 assert MODE == "testing" or MODE == "deployment"
 
@@ -320,4 +320,5 @@ def add_to_db(question, correct_answer):
 
 if MODE == "testing":
     if __name__ == "__main__":
+
         uvicorn.run(app, port=8000, log_level="warning")
