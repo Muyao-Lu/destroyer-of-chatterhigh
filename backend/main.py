@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_hyperbrowser import HyperbrowserLoader
 import dotenv, os, json, uvicorn, requests, datetime, re, markdown, time
+from requests import TooManyRedirects
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from sqlalchemy.exc import NoResultFound, MultipleResultsFound
 from bs4 import BeautifulSoup
@@ -13,21 +14,32 @@ import cohere
 
 dotenv.load_dotenv()
 
-MODE = "deployment"
+MODE = "testing"
 
 assert MODE == "testing" or MODE == "deployment"
 
-
-def get_final_url(url, session_token):
-    begin = datetime.datetime.now()
-    headers = {
+def safe_get(url, **cookies):
+  headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Accept": "text/html,application/xhtml+xml",
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": "https://chatterhigh.com/"
     }
+  response = requests.get(url=url, headers=headers, cookies=cookies, verify=False)
+  ctype = response.headers.get("Content-Type")
+  if ctype.startswith("text/html"):
+    data = bytearray()
+    for chunk in response.iter_content(8192):
+        data.extend(chunk)
+        if len(data) > 100000:
+            raise ValueError("Too large (streamed)")
+    return response
+  else:
+    raise ValueError("Incorrect Content Type")
 
-    response = requests.get(url=url, headers=headers, cookies={"_chatterhigh_session_1": session_token})
+def get_final_url(url, session_token):
+    begin = datetime.datetime.now()
+    response = safe_get(url, _chatterhigh_session_1=session_token)
     print("Got final url with time of", (datetime.datetime.now() - begin).total_seconds())
 
     return response.url
@@ -44,14 +56,8 @@ class Scraper:
         self.api_key = os.environ["HYPERBROWSER_API_KEY"]
 
     def scrape(self, link):
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://chatterhigh.com/"
-        }
 
-        soup = BeautifulSoup(requests.get(link, headers=headers).text, features="html.parser")
+        soup = BeautifulSoup(safe_get(link).text, features="html.parser")
 
         if len(soup.text) > 2500:
             print("Using requests scrape")
@@ -292,12 +298,18 @@ def answer_question(request: QuestionRequest):
     try:
         return ai_api_access.call_answer_question(question=request.question, choices=request.choices,
                                                   link=request.website_link, session_token=request.session_token)
+    except TooManyRedirects:
+        return "Error! You aren't signed in!"
+    except ValueError:
+        return "Source was not deemed safe. Aborting question!"
     except Exception as e:
         print("Error!!", e)
 @app.post("/summarize")
 def summarize_questions(request: SummaryRequest):
     print("Summarizing Questions")
     return convert_to_html(ai_api_access.call_summarizer(documents=request.text))
+
+
 
 
 @app.get("/report_correct_answer")
