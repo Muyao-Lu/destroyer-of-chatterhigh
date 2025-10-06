@@ -3,6 +3,7 @@
 function main() {
 
     const mode = "deployment"
+    const errors = ["Error! You aren't signed in!", "Source was not deemed safe. Aborting question!"]
     let listener_ids = []
 
     let choices = {}
@@ -40,6 +41,7 @@ function main() {
             <h2>Automation dashboard</h2>
 
             <img src="https://raw.githubusercontent.com/Muyao-Lu/destroyer-of-chatterhigh/main/static/glorious_king_fred.png?raw=true">
+            <p id="error-reporter">Errors will pop up here:</p>
             <button id="automation-end-button">End Automation</button>`
 
         const styles = document.createElement("style");
@@ -117,6 +119,17 @@ function main() {
                 
             #automation-summary br{
                 display: block;
+            }
+                
+            #automation-dashboard #error-reporter{
+                width: 80%;
+                margin: 10%;
+                border: 2px solid white;
+                border-radius: 5px;
+                background-color: black;
+                font-family: monospace;
+                color: white;
+                padding: 3%;
             }`
 
             
@@ -181,13 +194,22 @@ function main() {
             request.onreadystatechange = function (){
                 console.log("Initiated request");
                 if (this.readyState == 4){
-                    select_choice(this.responseText);
-                    chrome.storage.local.set({
-                        last_correct_text: choices[this.responseText.replace(/"/g, "")],
-                        last_question: question
-                    });
-                    chrome.storage.local.set({summary_needed: true})
-                    document.getElementById("answer-submit").click();
+                    console.log(this.responseText == "null")
+                    if (! (this.responseText.replace(/"/g, "") in errors) && ! (this.responseText == "null")){
+                        select_choice(this.responseText);
+                        chrome.storage.local.set({
+                            last_correct_text: choices[this.responseText.replace(/"/g, "")],
+                            last_question: question
+                        });
+                        chrome.storage.local.set({summary_needed: true})
+                        document.getElementById("answer-submit").click();
+                    }
+                    else if (this.responseText == "null"){
+                        document.getElementById("error-reporter").innerHTML = "The backend is currently down. Please try again in a bit"
+                    }
+                    else{
+                        document.getElementById("error-reporter").innerHTML = this.responseText.replace(/"/g, "")
+                    }
 
 
                 }
