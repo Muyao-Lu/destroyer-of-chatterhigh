@@ -195,7 +195,8 @@ function main() {
                 console.log("Initiated request");
                 if (this.readyState == 4){
                     console.log(this.responseText == "null")
-                    if (! (this.responseText.replace(/"/g, "") in errors) && ! (this.responseText == "null")){
+                    if (! (this.responseText.replace(/"/g, "") in errors) || ! (this.responseText == "null")){
+                        console.log(this.responseText);
                         select_choice(this.responseText);
                         chrome.storage.local.set({
                             last_correct_text: choices[this.responseText.replace(/"/g, "")],
