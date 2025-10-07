@@ -192,10 +192,16 @@ function main() {
             request.setRequestHeader('Content-Type', 'application/json');
 
             request.onreadystatechange = function (){
-                console.log("Initiated request");
+                console.log(this.responseText.replace(/"/g, "") in errors);
                 if (this.readyState == 4){
                     console.log(this.responseText == "null")
-                    if (! (this.responseText.replace(/"/g, "") in errors) && ! (this.responseText == "null")){
+                    if (this.responseText == "null"){
+                        document.getElementById("error-reporter").innerHTML = "The backend is currently down. Please try again in a bit"
+                    }
+                    else if (errors.includes(this.responseText.replace(/"/g, ""))){
+                        document.getElementById("error-reporter").innerHTML = this.responseText.replace(/"/g, "")
+                    }
+                    else{
                         console.log(this.responseText);
                         select_choice(this.responseText);
                         chrome.storage.local.set({
@@ -204,12 +210,6 @@ function main() {
                         });
                         chrome.storage.local.set({summary_needed: true})
                         document.getElementById("answer-submit").click();
-                    }
-                    else if (this.responseText == "null"){
-                        document.getElementById("error-reporter").innerHTML = "The backend is currently down. Please try again in a bit"
-                    }
-                    else{
-                        document.getElementById("error-reporter").innerHTML = this.responseText.replace(/"/g, "")
                     }
 
 
