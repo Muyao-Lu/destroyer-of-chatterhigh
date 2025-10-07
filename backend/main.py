@@ -5,12 +5,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_hyperbrowser import HyperbrowserLoader
-import dotenv, os, json, uvicorn, requests, datetime, re, markdown, time
+import dotenv, os, json, uvicorn, requests, datetime, re, markdown, time, io
 from requests import TooManyRedirects
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from sqlalchemy.exc import NoResultFound, MultipleResultsFound
 from bs4 import BeautifulSoup
 import cohere
+import pdfplumber
 
 dotenv.load_dotenv()
 
@@ -18,31 +19,59 @@ MODE = "deployment"
 
 assert MODE == "testing" or MODE == "deployment"
 
-def safe_get(url, **cookies):
-  headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://chatterhigh.com/"
-    }
-  response = requests.get(url=url, headers=headers, cookies=cookies, verify=False)
-  ctype = response.headers.get("Content-Type")
-  if ctype.startswith("text/html"):
-    data = bytearray()
-    for chunk in response.iter_content(8192):
-        data.extend(chunk)
-        if len(data) > 2000000:
-            raise ValueError("Too large (streamed)")
-    return response
-  else:
-    raise ValueError("Incorrect Content Type")
+class SiteDataRequestManager:
 
-def get_final_url(url, session_token):
-    begin = datetime.datetime.now()
-    response = safe_get(url, _chatterhigh_session_1=session_token)
-    print("Got final url with time of", (datetime.datetime.now() - begin).total_seconds())
+    def __init__(self):
+        self.current_url = None
+        self.document = None
+        self.requests_response = None
 
-    return response.url
+        self.request_headers = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+              "Accept": "text/html,application/xhtml+xml",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Referer": "https://chatterhigh.com/"
+          }
+
+    def safe_get(self, url, **cookies):
+        print("Calling Safe Get")
+        self.current_url = url
+        response = requests.get(url=url, headers=self.request_headers, cookies=cookies, verify=False)
+        ctype = response.headers.get("Content-Type")
+
+        data = bytearray()
+        for chunk in response.iter_content(8192):
+            data.extend(chunk)
+            if len(data) > 5000000:
+                raise ValueError(f"Too large (streamed). Data was {len(data)} bytes")
+
+
+        if ctype.startswith("text/html"):
+            self.requests_response = response
+            self.document = response.text
+        elif ctype.startswith("application/pdf"):
+            d = ""
+            stream = io.BytesIO(response.content)
+            with pdfplumber.open(stream) as pdf:
+                for page in pdf.pages:
+                    d += page.extract_text()
+
+            self.requests_response = response
+            self.document = d
+        else:
+          raise ValueError("Incorrect Content Type")
+
+    def get_final_url(self, url, session_token):
+        if self.current_url != url:
+            self.safe_get(url, _chatterhigh_session_1=session_token)
+
+        return self.requests_response.url
+
+    def get_site_content(self, url):
+        if self.current_url != url:
+            self.safe_get(url)
+
+        return self.document
 
 def convert_to_html(mk):
     converted = markdown.markdown(mk, extensions=["tables"])
@@ -57,7 +86,7 @@ class Scraper:
 
     def scrape(self, link):
 
-        soup = BeautifulSoup(safe_get(link).text, features="html.parser")
+        soup = BeautifulSoup(request_access.get_site_content(link), features="html.parser")
 
         if len(soup.text) > 2500:
             print("Using requests scrape")
@@ -72,6 +101,7 @@ class Scraper:
             r = loader.load()
 
             return r[0].page_content
+
 
 class AIAccess:
 
@@ -126,7 +156,7 @@ class AIAccess:
         return segments[first_item_index]
 
     def generate_rag_prompt(self, question, choices, link, session_token):
-        t = self.find_top_segment(query=question, document=self.scraper.scrape(link=get_final_url(link, session_token)))
+        t = self.find_top_segment(query=question, document=self.scraper.scrape(link=request_access.get_final_url(link, session_token)))
         prompt = self.json_file["answer_quiz"].format(question=question, choices=choices, excerpt=t, source=link)
         return prompt
 
@@ -277,6 +307,7 @@ class SummaryRequest(BaseModel):
 
 app = FastAPI()
 database_access = QuestionDatabaseControl()
+request_access = SiteDataRequestManager()
 
 origins = [
     "chrome-extension://pddmfhlahoicjidkahboanogjmhnmeab",
